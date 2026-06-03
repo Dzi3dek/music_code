@@ -8,11 +8,38 @@ import io
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
+from flask import Flask
+from threading import Thread
 
 from logger import ChannelLogger, get_logger
 
 load_dotenv()
 
+# =========================================
+# FLASK KEEP-ALIVE (dla Render darmowy plan)
+# =========================================
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "✅ Bot is alive!"
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask, daemon=True)
+    t.start()
+    print(f"✅ Flask keep-alive uruchomiony")
+
+# =========================================
+# KONFIGURACJA
+# =========================================
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -27,6 +54,9 @@ STATUS_CHANNEL_ID = 1511749668642619532
 STATUS_MESSAGE_FILE = "status_message_id.txt"
 
 
+# =========================================
+# BAZA DANYCH
+# =========================================
 def get_db():
     return pymysql.connect(
         host=os.getenv("DB_HOST"),
@@ -98,6 +128,9 @@ def log_to_db(guild_id, user_id, username, action, log_type):
             db.close()
 
 
+# =========================================
+# HELPERY
+# =========================================
 def to_polish_time(dt):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -123,6 +156,9 @@ def _save_status_message_id(message_id: int):
         print(f"❌ Nie można zapisać status message ID: {e}")
 
 
+# =========================================
+# BOT
+# =========================================
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="$", intents=intents)
@@ -135,13 +171,11 @@ class MyBot(commands.Bot):
     # GLOBALNY LOG WSZYSTKICH PREFIX KOMEND
     # =========================================
     async def on_command(self, ctx: commands.Context):
-        # Loguj prefix komendę do webhooka slash
         try:
             self.channel_logger.log_prefix_command(ctx)
         except Exception as e:
             print(f"❌ Błąd logowania prefix command: {e}")
 
-        # Usuń wiadomość z kanału
         try:
             if ctx.guild and ctx.channel.permissions_for(
                 ctx.guild.me
@@ -359,7 +393,6 @@ class MyBot(commands.Bot):
                 )
             else:
                 print(f"⚠️ Nie znaleziono roli admina (ID: {self.ADMIN_ROLE_ID})")
-                print(f"✅ Statystyki: {members_count} członków, {admin_count} adminów")
 
             save_stats(str(self.GUILD_ID), "admins", admin_count)
             return True
@@ -508,4 +541,8 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ Brak tokenu DISCORD_TOKEN w .env!")
         exit(1)
+
+    # Uruchom Flask keep-alive PRZED botem
+    keep_alive()
+
     bot.run(TOKEN)
